@@ -1,0 +1,24 @@
+{
+  "name": "@rustok-org/uniswap",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Uniswap × Rustok glue layer — UniswapX order encoding + safety gates for self-custody signing.",
+  "license": "MIT-0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "license:check": "license-checker --production --excludePrivatePackages --onlyAllow 'MIT;MIT-0;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;Unlicense'"
+  },
+  "devDependencies": {
+    "license-checker": "^25.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
