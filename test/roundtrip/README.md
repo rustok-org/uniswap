@@ -27,6 +27,11 @@ swapper-bind satisfied by construction.
 
 ## Run
 
+**Requires Docker** (Compose v2) and the ability to build the `../../../core` image. On a
+podman-only host (e.g. Fedora) install a Compose provider first — `sudo dnf install podman-compose`
+(or `docker-compose`) — and substitute `podman compose` for `docker compose` below; otherwise the
+`docker compose` commands fail with "command not found".
+
 From this directory (`uniswap/test/roundtrip/`):
 
 ```bash
