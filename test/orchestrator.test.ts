@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { ethers } from "ethers";
 import { describe, expect, it } from "vitest";
 
+import type { OrderEip712Digest } from "../src/encode.js";
 import { requestSwap } from "../src/orchestrator.js";
 import { DevKeyringSigner, type Signer } from "../src/signer.js";
 import type { Intent, Quote } from "../src/types.js";
@@ -45,9 +46,9 @@ class CountingSigner implements Signer {
   get address(): string {
     return this.inner.address;
   }
-  async signDigest(digest: string): Promise<string> {
+  async signTypedData(eip712: OrderEip712Digest): Promise<string> {
     this.count += 1;
-    return this.inner.signDigest(digest);
+    return this.inner.signTypedData(eip712);
   }
 }
 
@@ -124,10 +125,11 @@ describe("requestSwap (hermetic E2E)", () => {
               : [];
         });
       })(root);
-      // signer.ts legitimately wraps the crypto primitive; no OTHER src file may reach signing.
+      // signer.ts wraps the crypto primitive; gateway-signer.ts (live impl) forwards via fetch —
+      // neither contains a `.signTypedData(` call-site. No OTHER src file may reach signing.
       const callers = files
         .filter((f) => !f.endsWith("/signer.ts"))
-        .filter((f) => /\.signDigest\(/.test(readFileSync(f, "utf8")))
+        .filter((f) => /\.signTypedData\(/.test(readFileSync(f, "utf8")))
         .map((f) => f.split("/").pop());
       expect(callers).toEqual(["orchestrator.ts"]);
     });

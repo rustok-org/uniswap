@@ -56,7 +56,7 @@ export async function requestSwap(
     );
   }
 
-  const signature = await deps.signer.signDigest(digest);
+  const signature = await deps.signer.signTypedData(decoded.digest);
 
   const recovered = ethers.utils.getAddress(
     ethers.utils.recoverAddress(digest, signature),
