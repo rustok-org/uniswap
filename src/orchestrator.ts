@@ -20,15 +20,18 @@ export interface SignedOrder {
  *   1. independently reconstructs the order's digest from `encodedOrder`;
  *   2. **reconstruct-before-sign** — refuses unless that digest equals the digest the
  *      quote's `permitData` implies (the API's claim and the order must agree);
- *   3. runs the **recipient-aware minOut** gate on the decoded order;
- *   4. enforces **freshness** — refuses a stale order (`now >= deadline`);
- *   5. signs the digest through the single `Signer` seam;
- *   6. recover-verifies the signature against the signer's address.
+ *   3. **swapper-bind** — refuses unless the order's `swapper` is the signing wallet
+ *      (sign only your *own* order);
+ *   4. runs the **recipient-aware minOut** gate on the decoded order;
+ *   5. enforces **freshness** — refuses a stale order (`now >= deadline`);
+ *   6. signs the order's EIP-712 hashes through the single `Signer` seam;
+ *   7. recover-verifies the signature against the signer's address.
  *
  * Any failure throws **before** the signer is reached (no signature on reject). `now` is
- * injected (unix seconds) for deterministic tests. NB: the production invariant
- * `recover == order.swapper` (sign only your own order) is verified in the live slice — here
- * the dev key ≠ the order's swapper, so Slice 1 verifies only the seam.
+ * injected (unix seconds) so tests are deterministic; the live entry point
+ * {@link requestSwapLive} is the only caller that reads the wall clock. The pre-sign
+ * swapper-bind (3) and the post-sign recover-verify (7) are transitive:
+ * `recover == signer.address == order.swapper` ⇒ you can only sign your own order.
  */
 export async function requestSwap(
   quote: Quote,
@@ -48,6 +51,15 @@ export async function requestSwap(
     );
   }
 
+  if (
+    ethers.utils.getAddress(decoded.swapper) !==
+    ethers.utils.getAddress(deps.signer.address)
+  ) {
+    throw new Error(
+      "swapper-bind: order swapper is not the signing wallet (refuse to sign another's order)",
+    );
+  }
+
   checkMinOut(decoded.outputs, intent);
 
   if (now >= decoded.deadline) {
@@ -56,7 +68,7 @@ export async function requestSwap(
     );
   }
 
-  const signature = await deps.signer.signDigest(digest);
+  const signature = await deps.signer.signTypedData(decoded.digest);
 
   const recovered = ethers.utils.getAddress(
     ethers.utils.recoverAddress(digest, signature),
@@ -66,4 +78,19 @@ export async function requestSwap(
   }
 
   return { digest, signature };
+}
+
+/**
+ * Live entry point — the **sole** place the wall clock is read. Injects a trusted `now`
+ * (`Math.floor(Date.now() / 1000)`) into {@link requestSwap}; the clock is never sourced from
+ * the agent or the quote (an attacker-supplied `now` would defeat refuse-when-stale). All
+ * other logic is shared with the injectable `requestSwap`, which keeps `now` a parameter so
+ * tests stay deterministic.
+ */
+export async function requestSwapLive(
+  quote: Quote,
+  intent: Intent,
+  deps: SwapDeps,
+): Promise<SignedOrder> {
+  return requestSwap(quote, intent, deps, Math.floor(Date.now() / 1000));
 }

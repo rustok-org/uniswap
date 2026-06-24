@@ -1,0 +1,62 @@
+# Env-gated round-trip harness for PR-2 Slice 2b-1 — a THROWAWAY local core+gateway with a
+# TEST wallet (NO funds), so the Reviewer can prove the live gateway sign path end-to-end at
+# Gate-2 (Metric-Honesty). NOT run in CI (no cross-repo `../../../core` build there); run by hand.
+#
+# Mirrors the prod core+gateway pair (meta/docker-compose.yml) — same image, two binaries.
+# See README.md for the run sequence (create-wallet one-shot must precede `up`).
+name: rustok-roundtrip
+
+services:
+  core:
+    build:
+      context: ../../../core # uniswap/test/roundtrip -> rustok/core
+      dockerfile: Dockerfile
+    image: rustok-core:roundtrip
+    environment:
+      RUSTOK_GRPC_ADDR: "0.0.0.0:50051"
+      RUSTOK_KEYRING_PASSWORD: ${RUSTOK_KEYRING_PASSWORD:?set a throwaway keyring password}
+      RUSTOK_ALLOWED_CHAINS: "1"
+    volumes:
+      - roundtrip-data:/home/rustok/.rustok/agent
+    networks:
+      - internal
+
+  gateway:
+    image: rustok-core:roundtrip
+    entrypoint: ["/usr/local/bin/gateway"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      RUSTOK_GATEWAY_ADDR: "0.0.0.0:3000"
+      RUSTOK_CORE_ADDR: "http://core:50051"
+      RUSTOK_MCP_API_KEY: ${RUSTOK_MCP_API_KEY:?set a throwaway gateway bearer}
+    networks:
+      - internal
+      - edge
+    healthcheck:
+      # Require a serving Core downstream (no curl in the image), so `up --wait` blocks
+      # until the round-trip can actually sign. Mirrors meta/docker-compose.yml.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/3000 &&
+          printf 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"core":"serving"' <&3
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    depends_on:
+      core:
+        # Core only binds :50051 after it unlocks the wallet, so "healthy" ⇒ the
+        # keystore exists and is unlocked (image HEALTHCHECK = tcp :50051).
+        condition: service_healthy
+
+networks:
+  internal:
+  edge:
+
+volumes:
+  roundtrip-data:

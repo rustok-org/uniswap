@@ -2,9 +2,10 @@ import { createRequire } from "node:module";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 
 import { ethers } from "ethers";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { requestSwap } from "../src/orchestrator.js";
+import type { OrderEip712Digest } from "../src/encode.js";
+import { requestSwap, requestSwapLive } from "../src/orchestrator.js";
 import { DevKeyringSigner, type Signer } from "../src/signer.js";
 import type { Intent, Quote } from "../src/types.js";
 
@@ -21,8 +22,12 @@ interface Fixture {
 const fx = require("./fixtures/unsigned-v2-quote.json") as Fixture;
 
 // Deterministic dev key for the hermetic harness — Hardhat test key #1, NOT a real wallet.
+// Its address is the fixture's `swapper`, so the pre-sign swapper-bind passes.
 const DEV_PK =
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+// A different dev key (Hardhat #2) — its address is NOT the fixture's swapper.
+const OTHER_PK =
+  "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
 const quote: Quote = {
   encodedOrder: fx.encodedOrder,
   permitData: fx.permitData,
@@ -45,9 +50,9 @@ class CountingSigner implements Signer {
   get address(): string {
     return this.inner.address;
   }
-  async signDigest(digest: string): Promise<string> {
+  async signTypedData(eip712: OrderEip712Digest): Promise<string> {
     this.count += 1;
-    return this.inner.signDigest(digest);
+    return this.inner.signTypedData(eip712);
   }
 }
 
@@ -86,6 +91,15 @@ describe("requestSwap (hermetic E2E)", () => {
     ).rejects.toThrow(/reconstruct-before-sign/);
   });
 
+  it("refuses to sign an order whose swapper is not the signing wallet (test 6)", async () => {
+    // Hardhat #2 signs, but the order's swapper is Hardhat #1 → bind rejects before signing.
+    const stranger = new CountingSigner(new DevKeyringSigner(OTHER_PK));
+    await expect(
+      requestSwap(quote, intent, { signer: stranger }, FRESH),
+    ).rejects.toThrow(/swapper-bind/);
+    expect(stranger.count).toBe(0);
+  });
+
   describe("no-bypass (test 5)", () => {
     it("invokes the sign route exactly once on success, zero on every reject", async () => {
       const happy = new CountingSigner(new DevKeyringSigner(DEV_PK));
@@ -110,6 +124,12 @@ describe("requestSwap (hermetic E2E)", () => {
         requestSwap(quote, tooHigh, { signer: badMinOut }, FRESH),
       ).rejects.toThrow();
       expect(badMinOut.count).toBe(0);
+
+      const stranger = new CountingSigner(new DevKeyringSigner(OTHER_PK));
+      await expect(
+        requestSwap(quote, intent, { signer: stranger }, FRESH),
+      ).rejects.toThrow();
+      expect(stranger.count).toBe(0);
     });
 
     it("has exactly one sign-route caller outside the signer impl (structural)", () => {
@@ -124,12 +144,38 @@ describe("requestSwap (hermetic E2E)", () => {
               : [];
         });
       })(root);
-      // signer.ts legitimately wraps the crypto primitive; no OTHER src file may reach signing.
+      // signer.ts wraps the crypto primitive; gateway-signer.ts (live impl) forwards via fetch —
+      // neither contains a `.signTypedData(` call-site. No OTHER src file may reach signing.
       const callers = files
         .filter((f) => !f.endsWith("/signer.ts"))
-        .filter((f) => /\.signDigest\(/.test(readFileSync(f, "utf8")))
+        .filter((f) => /\.signTypedData\(/.test(readFileSync(f, "utf8")))
         .map((f) => f.split("/").pop());
       expect(callers).toEqual(["orchestrator.ts"]);
     });
+  });
+});
+
+describe("requestSwapLive (trusted wall clock, test 9)", () => {
+  // The fixture deadline is fixed far-future (SDK-built); both directions are driven by a
+  // faked Date so the wrapper's clock injection is proven deterministically, no real-clock race.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("injects now from the wall clock and signs before the deadline (9i)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(FRESH * 1000));
+    const signer = new DevKeyringSigner(DEV_PK);
+    const result = await requestSwapLive(quote, intent, { signer });
+    expect(result.digest).toBe(fx.apiDigest);
+  });
+
+  it("refuses a stale order under the real-clock entry point (9ii)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(STALE * 1000));
+    const signer = new DevKeyringSigner(DEV_PK);
+    await expect(requestSwapLive(quote, intent, { signer })).rejects.toThrow(
+      /freshness/,
+    );
   });
 });
