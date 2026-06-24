@@ -7,7 +7,7 @@
  */
 export const NAME = "@rustok-org/uniswap";
 
-export { requestSwap } from "./orchestrator.js";
+export { requestSwap, requestSwapLive } from "./orchestrator.js";
 export type { SwapDeps, SignedOrder } from "./orchestrator.js";
 export { DevKeyringSigner } from "./signer.js";
 export type { Signer } from "./signer.js";
