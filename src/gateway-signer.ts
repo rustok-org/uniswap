@@ -142,7 +142,7 @@ async function gatewayJson(
   try {
     res = await fetchImpl(url, { ...init, signal: controller.signal });
   } catch (err) {
-    throw new Error(`gateway request to ${url} failed: ${String(err)}`);
+    throw new Error(`gateway request to ${url} failed`, { cause: err });
   } finally {
     clearTimeout(timer);
   }
