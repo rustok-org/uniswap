@@ -1,5 +1,7 @@
 # rustok-org/uniswap
 
+> 🅿️ **PARKED (2026-07-02).** Арка на паузе (`@e69bc5b`); оживает серверно на Этапе 4 (swap = Agent-proposed). Живой статус — `core/.claude/PLAN-OF-RECORD.md`.
+
 > Reference integration: **Uniswap × Rustok** — the self-custody signing/gates glue layer for
 > agent-driven Uniswap execution.
 
